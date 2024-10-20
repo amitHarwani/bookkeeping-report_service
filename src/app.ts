@@ -26,11 +26,17 @@ app.use(
     })
 );
 
+app.use((req, res, next) => {
+    console.log("Request Body", req.body);
+    next();
+})
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /* Routes */
+import ReportRouter from "./routes/report.routes";
 
+app.use("/report", ReportRouter);
 
 
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {

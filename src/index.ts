@@ -9,5 +9,5 @@ import logger from "./utils/logger";
 
 
 app.listen(process.env.PORT, () => {
-    logger.info(`Billing Service Listening On Port ${process.env.PORT}`);
+    logger.info(`Reports Service Listening On Port ${process.env.PORT}`);
 });
