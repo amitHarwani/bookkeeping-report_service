@@ -6,8 +6,10 @@ dotenv.config({
 
 import app from "./app";
 import logger from "./utils/logger";
+import { deleteFile, getAllFiles } from "./utils/cloud_storage_upload";
 
 
-app.listen(process.env.PORT, () => {
+app.listen(process.env.PORT, async () => {
+    // await getAllFiles();
     logger.info(`Reports Service Listening On Port ${process.env.PORT}`);
 });

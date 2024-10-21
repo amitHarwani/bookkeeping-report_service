@@ -11,3 +11,14 @@ export const DATE_TIME_FORMATS = {
     dateTimeFormat24hr: "YYYY-MM-DD HH:mm:ss",
     displayedDateTimeFormat24hr: "DD/MM/YYYY HH:mm:ss"
 };
+
+
+export enum REPORT_TYPES {
+    dayEndSummaryReport = "day_end_summary_report"
+}
+
+export enum REPORT_STATUS_TYPES {
+    inProgress = "IN_PROGRESS",
+    error = "ERROR",
+    completed = "COMPLETED"
+}

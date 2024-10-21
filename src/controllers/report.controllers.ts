@@ -4,9 +4,16 @@ import moment from "moment";
 import momentTimezone from "moment-timezone";
 import QueryStream from "pg-query-stream";
 import * as DAY_END_SUMMARY_CONFIG from "../config/get_day_end_summary_report_config";
-import { DATE_TIME_FORMATS } from "../constants";
+import {
+    DATE_TIME_FORMATS,
+    REPORT_STATUS_TYPES,
+    REPORT_TYPES,
+} from "../constants";
 import * as db from "../db";
-import { GetDayEndSummaryReportRequest } from "../dto/report/get_day_end_summary_report_dto";
+import {
+    GetDayEndSummaryReportRequest,
+    GetDayEndSummaryReportResponse,
+} from "../dto/report/get_day_end_summary_report_dto";
 import { DAY_END_SUMMARY_QUERIES } from "../queries/get_day_end_summary_report_queries";
 import asyncHandler from "../utils/async_handler";
 import {
@@ -15,6 +22,10 @@ import {
     convertUTCStringToTimezonedString,
     getTempReportFilePath,
 } from "../utils/common_utils";
+import { uploadReportFile } from "../utils/cloud_storage_upload";
+import { ApiResponse } from "../utils/ApiResponse";
+import { reports } from "db_service";
+import { eq } from "drizzle-orm";
 
 export const getDayEndSummaryReport = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -25,6 +36,27 @@ export const getDayEndSummaryReport = asyncHandler(
         const endTime = moment(`${body.toDateTime} ${body.dayStartTime}`)
             .subtract(1, "seconds")
             .format("HH:mm:ss");
+
+        /* Inserting into reports table */
+        const reportRequestAdded = await db.db
+            .insert(reports)
+            .values({
+                reportName: REPORT_TYPES.dayEndSummaryReport,
+                status: REPORT_STATUS_TYPES.inProgress,
+                fromDateTime: moment.utc(
+                    `${body.fromDateTime} ${body.dayStartTime}`
+                ).toDate(),
+                toDateTime: moment.utc(`${body.toDateTime} ${endTime}`).toDate(),
+                requestedBy: req?.user?.userId,
+            })
+            .returning();
+
+        /* Sending the response */
+        res.status(200).json(
+            new ApiResponse<GetDayEndSummaryReportResponse>(200, {
+                message: "in progress",
+            })
+        );
 
         /* Temporary File Name */
         const fileName = getTempReportFilePath();
@@ -49,79 +81,14 @@ export const getDayEndSummaryReport = asyncHandler(
         /* Getting the postgres client */
         const client = await db.getClient();
 
-        /* Cash In Out Query */
-        const cashInOutQueryPromise = new Promise((resolve, reject) => {
-            /* Cash In Out Query Stream */
-            const query = new QueryStream(
-                DAY_END_SUMMARY_QUERIES.cashInOutQuery,
-                [
-                    `${body.fromDateTime} 00:00:00`,
-                    body.dayStartTime,
-                    `${body.toDateTime} 00:00:00`,
-                    endTime,
-                    body.companyId,
-                ]
-            );
+        let reportLink;
 
-            const stream = client.query(query);
-
-            /* On Data */
-            stream.on("data", (chunk) => {
-                /* Converting UTC times to the timezone passed */
-                chunk.start_time = convertUTCStringToTimezonedString(
-                    chunk.start_time,
-                    body.timezone,
-                    DATE_TIME_FORMATS.displayedDateTimeFormat24hr
-                );
-                chunk.end_time = convertUTCStringToTimezonedString(
-                    chunk.end_time,
-                    body.timezone,
-                    DATE_TIME_FORMATS.displayedDateTimeFormat24hr
-                );
-
-                /* Converting numeric string type to Number */
-                chunk.total_cash_in = Number(chunk.total_cash_in);
-                chunk.total_cash_out = Number(chunk.total_cash_out);
-
-                /* Adding row to the worksheet */
-                worksheet.addRow(chunk);
-
-                /* Autosizing column as data is being added */
-                autosizeColumn(
-                    worksheet,
-                    HEADER_KEYS.startTime,
-                    chunk.start_time
-                );
-                autosizeColumn(worksheet, HEADER_KEYS.endTime, chunk.end_time);
-                autosizeColumn(
-                    worksheet,
-                    HEADER_KEYS.totalCashIn,
-                    chunk.total_cash_in
-                );
-                autosizeColumn(
-                    worksheet,
-                    HEADER_KEYS.totalCashOut,
-                    chunk.total_cash_out
-                );
-            });
-
-            /* On End resolve the promise */
-            stream.on("end", async () => {
-                resolve(true);
-            });
-
-            /* On Error Reject the promies */
-            stream.on("error", () => {
-                reject();
-            });
-        });
-
-        /* Total Sales and purchases query */
-        const totalSalesAndPurchasesQueryPromise = new Promise(
-            (resolve, reject) => {
-                /* Query Stream */
+        try {
+            /* Cash In Out Query */
+            const cashInOutQueryPromise = new Promise((resolve, reject) => {
+                /* Cash In Out Query Stream */
                 const query = new QueryStream(
-                    DAY_END_SUMMARY_QUERIES.totalSalesAndPurchasesQuery,
+                    DAY_END_SUMMARY_QUERIES.cashInOutQuery,
                     [
                         `${body.fromDateTime} 00:00:00`,
                         body.dayStartTime,
@@ -133,115 +100,214 @@ export const getDayEndSummaryReport = asyncHandler(
 
                 const stream = client.query(query);
 
-                /* Index for row number: As all the queries will have the same number of rows
-                because of ordering by start time and including all days*/
-                let index = 2;
+                /* On Data */
                 stream.on("data", (chunk) => {
-                    /* Converting to number type */
-                    chunk.total_sales = Number(chunk.total_sales);
-                    chunk.total_purchases = Number(chunk.total_purchases);
+                    /* Converting UTC times to the timezone passed */
+                    chunk.start_time = convertUTCStringToTimezonedString(
+                        chunk.start_time,
+                        body.timezone,
+                        DATE_TIME_FORMATS.displayedDateTimeFormat24hr
+                    );
+                    chunk.end_time = convertUTCStringToTimezonedString(
+                        chunk.end_time,
+                        body.timezone,
+                        DATE_TIME_FORMATS.displayedDateTimeFormat24hr
+                    );
 
-                    /* Getting the row */
-                    const currentRow = worksheet.getRow(index);
+                    /* Converting numeric string type to Number */
+                    chunk.total_cash_in = Number(chunk.total_cash_in);
+                    chunk.total_cash_out = Number(chunk.total_cash_out);
 
-                    /* Updating the row at the appropriate column cell */
-                    currentRow.getCell(HEADER_KEYS.totalSales).value =
-                        chunk.total_sales;
-                    currentRow.getCell(HEADER_KEYS.totalPurchases).value =
-                        chunk.total_purchases;
+                    /* Adding row to the worksheet */
+                    worksheet.addRow(chunk);
 
-                    /* Autosizing columns */
+                    /* Autosizing column as data is being added */
                     autosizeColumn(
                         worksheet,
-                        HEADER_KEYS.totalSales,
-                        chunk.total_sales
+                        HEADER_KEYS.startTime,
+                        chunk.start_time
                     );
                     autosizeColumn(
                         worksheet,
-                        HEADER_KEYS.totalPurchases,
-                        chunk.total_purchases
+                        HEADER_KEYS.endTime,
+                        chunk.end_time
                     );
-
-                    /* Incrementing index */
-                    ++index;
+                    autosizeColumn(
+                        worksheet,
+                        HEADER_KEYS.totalCashIn,
+                        chunk.total_cash_in
+                    );
+                    autosizeColumn(
+                        worksheet,
+                        HEADER_KEYS.totalCashOut,
+                        chunk.total_cash_out
+                    );
                 });
 
-                /* On end resolve the promise */
+                /* On End resolve the promise */
                 stream.on("end", async () => {
                     resolve(true);
                 });
 
-                /* On error reject the promise */
+                /* On Error Reject the promies */
                 stream.on("error", () => {
                     reject();
                 });
-            }
-        );
+            });
 
-        /* Aggregated Profit Query Promise */
-        const aggregatedProfitQueryPromise = new Promise((resolve, reject) => {
-            /* Query Stream */
-            const query = new QueryStream(
-                DAY_END_SUMMARY_QUERIES.aggregatedProfitQuery,
-                [
-                    `${body.fromDateTime} 00:00:00`,
-                    body.dayStartTime,
-                    `${body.toDateTime} 00:00:00`,
-                    endTime,
-                    body.companyId,
-                ]
+            /* Total Sales and purchases query */
+            const totalSalesAndPurchasesQueryPromise = new Promise(
+                (resolve, reject) => {
+                    /* Query Stream */
+                    const query = new QueryStream(
+                        DAY_END_SUMMARY_QUERIES.totalSalesAndPurchasesQuery,
+                        [
+                            `${body.fromDateTime} 00:00:00`,
+                            body.dayStartTime,
+                            `${body.toDateTime} 00:00:00`,
+                            endTime,
+                            body.companyId,
+                        ]
+                    );
+
+                    const stream = client.query(query);
+
+                    /* Index for row number: As all the queries will have the same number of rows
+                because of ordering by start time and including all days*/
+                    let index = 2;
+                    stream.on("data", (chunk) => {
+                        /* Converting to number type */
+                        chunk.total_sales = Number(chunk.total_sales);
+                        chunk.total_purchases = Number(chunk.total_purchases);
+
+                        /* Getting the row */
+                        const currentRow = worksheet.getRow(index);
+
+                        /* Updating the row at the appropriate column cell */
+                        currentRow.getCell(HEADER_KEYS.totalSales).value =
+                            chunk.total_sales;
+                        currentRow.getCell(HEADER_KEYS.totalPurchases).value =
+                            chunk.total_purchases;
+
+                        /* Autosizing columns */
+                        autosizeColumn(
+                            worksheet,
+                            HEADER_KEYS.totalSales,
+                            chunk.total_sales
+                        );
+                        autosizeColumn(
+                            worksheet,
+                            HEADER_KEYS.totalPurchases,
+                            chunk.total_purchases
+                        );
+
+                        /* Incrementing index */
+                        ++index;
+                    });
+
+                    /* On end resolve the promise */
+                    stream.on("end", async () => {
+                        resolve(true);
+                    });
+
+                    /* On error reject the promise */
+                    stream.on("error", () => {
+                        reject();
+                    });
+                }
             );
 
-            const stream = client.query(query);
+            /* Aggregated Profit Query Promise */
+            const aggregatedProfitQueryPromise = new Promise(
+                (resolve, reject) => {
+                    /* Query Stream */
+                    const query = new QueryStream(
+                        DAY_END_SUMMARY_QUERIES.aggregatedProfitQuery,
+                        [
+                            `${body.fromDateTime} 00:00:00`,
+                            body.dayStartTime,
+                            `${body.toDateTime} 00:00:00`,
+                            endTime,
+                            body.companyId,
+                        ]
+                    );
 
-            /* Index for row number: As all the queries will have the same number of rows
+                    const stream = client.query(query);
+
+                    /* Index for row number: As all the queries will have the same number of rows
                 because of ordering by start time and including all days*/
-            let index = 2;
-            stream.on("data", (chunk) => {
-                /* Converting to number type */
-                chunk.aggregated_profit = Number(chunk.aggregated_profit);
+                    let index = 2;
+                    stream.on("data", (chunk) => {
+                        /* Converting to number type */
+                        chunk.aggregated_profit = Number(
+                            chunk.aggregated_profit
+                        );
 
-                /* Getting the row */
-                const currentRow = worksheet.getRow(index);
+                        /* Getting the row */
+                        const currentRow = worksheet.getRow(index);
 
-                /* Updating the row at the appropriate column cell */
-                currentRow.getCell(HEADER_KEYS.aggregatedProfit).value =
-                    chunk.aggregated_profit;
+                        /* Updating the row at the appropriate column cell */
+                        currentRow.getCell(HEADER_KEYS.aggregatedProfit).value =
+                            chunk.aggregated_profit;
 
-                /* Autosizing columns */
-                autosizeColumn(
-                    worksheet,
-                    HEADER_KEYS.aggregatedProfit,
-                    chunk.aggregated_profit
-                );
+                        /* Autosizing columns */
+                        autosizeColumn(
+                            worksheet,
+                            HEADER_KEYS.aggregatedProfit,
+                            chunk.aggregated_profit
+                        );
 
-                ++index;
-            });
+                        ++index;
+                    });
 
-            stream.on("end", async () => {
-                resolve(true);
-            });
-            stream.on("error", () => {
-                reject();
-            });
-        });
+                    stream.on("end", async () => {
+                        resolve(true);
+                    });
+                    stream.on("error", () => {
+                        reject();
+                    });
+                }
+            );
 
-        /* Wait for all promises to resolve */
-        try {
+            /* Wait for all promises to resolve */
             await Promise.all([
                 cashInOutQueryPromise,
                 totalSalesAndPurchasesQueryPromise,
                 aggregatedProfitQueryPromise,
             ]);
+
+            /* Write to file */
+            await workbook.xlsx.writeFile(fileName);
+
+            /* Uploading report to cloud storage and storing the report link */
+            reportLink = await uploadReportFile(
+                fileName,
+                `${REPORT_TYPES.dayEndSummaryReport}-${crypto.randomUUID()}`
+            );
         } catch (error) {
-            throw error;
+
+            /* On error update reports status in DB */
+            await db.db
+                .update(reports)
+                .set({
+                    status: REPORT_STATUS_TYPES.error,
+                })
+                .where(eq(reports.reportId, reportRequestAdded[0].reportId));
         } finally {
             /* Always release the client */
             client.release();
         }
-        /* Write to file */
-        await workbook.xlsx.writeFile(fileName);
-
-        return res.status(200).json({ message: "Done" });
+        /* Update reports table, with status as complete and the report link
+            Surrounding in try catch as the response is already sent.
+        */
+        try {
+            await db.db
+                .update(reports)
+                .set({
+                    reportLink: reportLink,
+                    status: REPORT_STATUS_TYPES.completed,
+                })
+                .where(eq(reports.reportId, reportRequestAdded[0].reportId));
+        } catch (error) {}
     }
 );
