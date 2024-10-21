@@ -6,7 +6,7 @@ dotenv.config({
 
 import app from "./app";
 import logger from "./utils/logger";
-import { deleteFile, getAllFiles } from "./utils/cloud_storage_upload";
+import { deleteFile, getAllFiles } from "./utils/cloud_storage";
 
 
 app.listen(process.env.PORT, async () => {

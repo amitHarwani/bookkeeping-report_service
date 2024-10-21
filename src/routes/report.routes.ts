@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response, Router } from "express";
 import {
+    deleteReportValidator,
     getAllReportsValidator,
     getDayEndSummaryReportValidator,
     getReportValidator,
@@ -7,6 +8,7 @@ import {
 import { validateInput } from "../validators";
 import { checkAccess } from "../middlewares/auth.middleware";
 import {
+    deleteReport,
     getAllReports,
     getDayEndSummaryReport,
     getReport,
@@ -36,6 +38,16 @@ router.post(
     validateInput,
     checkAccess(34),
     getDayEndSummaryReport
+);
+
+router.delete(
+    "/delete-report",
+    deleteReportValidator(),
+    validateInput,
+    (req: Request, res: Response, next: NextFunction) => {
+        checkAccess(33, Number(req?.query?.companyId))(req, res, next);
+    },
+    deleteReport
 );
 
 export default router;

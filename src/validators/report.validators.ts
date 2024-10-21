@@ -26,6 +26,13 @@ export const getAllReportsValidator = () => {
     ];
 };
 
+export const deleteReportValidator = () => {
+    return [
+        query("companyId").isInt().withMessage("invalid company id "),
+        query("reportId").isInt().withMessage("invalid report id")
+    ]
+}
+
 export const getDayEndSummaryReportValidator = () => {
     return [
         body("companyId").isInt().withMessage("invalid company id"),

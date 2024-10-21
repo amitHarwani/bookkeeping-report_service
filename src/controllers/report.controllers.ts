@@ -22,7 +22,7 @@ import {
     convertUTCStringToTimezonedString,
     getTempReportFilePath,
 } from "../utils/common_utils";
-import { uploadReportFile } from "../utils/cloud_storage_upload";
+import { deleteFile, getFileIDFromWebLink, uploadReportFile } from "../utils/cloud_storage";
 import { ApiResponse } from "../utils/ApiResponse";
 import { reports } from "db_service";
 import { and, asc, desc, eq, getTableColumns, gt, or, sql } from "drizzle-orm";
@@ -32,6 +32,8 @@ import {
 } from "../dto/report/get_all_reports_dto";
 import { ApiError } from "../utils/ApiError";
 import { GetReportResponse } from "../dto/report/get_report_dto";
+import fs from "fs";
+import { DeleteReportResponse } from "../dto/report/delete_report_dto";
 
 export const getReport = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -116,6 +118,43 @@ export const getAllReports = asyncHandler(
         );
     }
 );
+
+export const deleteReport = asyncHandler(async(req: Request, res: Response, next: NextFunction) => {
+    /* Company Id and Report ID */
+    const companyId = Number(req?.query?.companyId);
+    const reportId = Number(req?.query?.reportId);
+
+    /* Deleting the report from reports table */
+    const deletedReport = await db.db.delete(reports).where(and(
+        eq(reports.reportId, reportId),
+        eq(reports.companyId, companyId),
+        eq(reports.requestedBy, req?.user?.userId as string)
+    )).returning()
+
+    /* If report does not exist */
+    if(!deletedReport.length){
+        throw new ApiError(400, "invalid details passed", []);
+    }
+
+    /* Report Link */
+    const reportLink = deletedReport[0].reportLink;
+
+    /* If report link exists */
+    if(reportLink){
+
+        /* File ID */
+        const fileId = getFileIDFromWebLink(reportLink)
+
+        /* If File ID exists, delete the file from cloud storage */
+        if(fileId){
+            await deleteFile(fileId);
+        }
+    }
+    return res.status(200).json(new ApiResponse<DeleteReportResponse>(200, {
+        message: "report deleted successfully"
+    }))
+
+})
 
 export const getDayEndSummaryReport = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -401,6 +440,9 @@ export const getDayEndSummaryReport = asyncHandler(
                     status: REPORT_STATUS_TYPES.completed,
                 })
                 .where(eq(reports.reportId, reportRequestAdded[0].reportId));
+    
+            /* Delete the temporary file */
+            fs.unlinkSync(fileName);
         } catch (error) {}
     }
 );
