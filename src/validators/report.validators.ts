@@ -1,6 +1,24 @@
 import { body } from "express-validator";
 import { REGEX } from "../constants";
 
+export const getAllReportsValidator = () => {
+    return [
+        body("companyId").isInt().withMessage("invalid companyId field"),
+        body("pageSize").isInt().withMessage("invalid pageSize field"),
+        body("cursor").custom((value) => {
+            if (
+                !value ||
+                (typeof value === "object" &&
+                    typeof value?.reportId === "number" &&
+                    value?.createdAt)
+            ) {
+                return true;
+            }
+            throw new Error("invalid cursor field");
+        }),
+    ];
+};
+
 export const getDayEndSummaryReportValidator = () => {
     return [
         body("companyId").isInt().withMessage("invalid company id"),

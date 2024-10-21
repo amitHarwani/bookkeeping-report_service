@@ -25,7 +25,88 @@ import {
 import { uploadReportFile } from "../utils/cloud_storage_upload";
 import { ApiResponse } from "../utils/ApiResponse";
 import { reports } from "db_service";
-import { eq } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, or, sql } from "drizzle-orm";
+import { GetAllReportsRequest, GetAllReportsResponse } from "../dto/report/get_all_reports_dto";
+import { ApiError } from "../utils/ApiError";
+
+
+export const getAllReports = asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+        const body = req.body as GetAllReportsRequest;
+
+        let whereClause;
+
+        /* If cursor is passed: Next page is being fetched */
+        if (body?.cursor) {
+            whereClause = and(
+                or(
+                    sql`${reports.createdAt} < ${body.cursor.createdAt}`,
+                    and(
+                        sql`${reports.createdAt} = ${body.cursor.createdAt}`,
+                        gt(reports.reportId, body.cursor.reportId)
+                    )
+                ),
+                eq(reports.companyId, body.companyId),
+            );
+        } else {
+            whereClause = eq(reports.companyId, body.companyId);
+        }
+
+        /* All report columns */
+        const reportCloumns = getTableColumns(reports);
+
+        /* Default cols to select always */
+        let colsToSelect = {
+            reportId: reports.reportId,
+            createdAt: reports.createdAt,
+        };
+
+        /* If select is passed */
+        if (body?.select) {
+            /* Keys of all report columns */
+            const reportColumnKeys = Object.keys(reportCloumns);
+
+            /* Add column to colsToSelect */
+            body.select?.forEach((col) => {
+                /* If column name is invalid throw error */
+                if (!reportColumnKeys.includes(col)) {
+                    throw new ApiError(422, `invalid col to select ${col}`, []);
+                }
+
+                colsToSelect = { ...colsToSelect, [col]: reportCloumns[col] };
+            });
+        } else {
+            /* Else, select all columns */
+            colsToSelect = reportCloumns;
+        }
+
+        /* DB Query */
+        const allReports = await db.db
+            .select(colsToSelect)
+            .from(reports)
+            .where(whereClause)
+            .limit(body.pageSize)
+            .orderBy(desc(reports.createdAt), asc(reports.reportId));
+
+        /* Setting the next page cursor according to the last item values */
+        let nextPageCursor;
+        const lastItem = allReports?.[allReports.length - 1];
+        if (lastItem) {
+            nextPageCursor = {
+                reportId: lastItem.reportId,
+                createdAt: lastItem.createdAt as Date,
+            };
+        }
+
+        return res.status(200).json(
+            new ApiResponse<GetAllReportsResponse<typeof allReports>>(200, {
+                reports: allReports,
+                hasNextPage: nextPageCursor ? true : false,
+                nextPageCursor: nextPageCursor,
+            })
+        );
+    }
+);
 
 export const getDayEndSummaryReport = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -42,6 +123,7 @@ export const getDayEndSummaryReport = asyncHandler(
             .insert(reports)
             .values({
                 reportName: REPORT_TYPES.dayEndSummaryReport,
+                companyId: body.companyId,
                 status: REPORT_STATUS_TYPES.inProgress,
                 fromDateTime: moment.utc(
                     `${body.fromDateTime} ${body.dayStartTime}`

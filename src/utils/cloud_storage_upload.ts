@@ -28,7 +28,7 @@ export const getAllFiles = async () => {
 
     const files = await drive.files.list();
 
-    logger.info(`Files In Drive ${files.data.files}`);
+    logger.info(`Files In Drive ${JSON.stringify(files.data.files)}`);
 
 }
 export const uploadReportFile = async (filePath: string, fileNameInStorage: string) => {
