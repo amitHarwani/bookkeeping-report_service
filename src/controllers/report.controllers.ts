@@ -26,10 +26,43 @@ import { uploadReportFile } from "../utils/cloud_storage_upload";
 import { ApiResponse } from "../utils/ApiResponse";
 import { reports } from "db_service";
 import { and, asc, desc, eq, getTableColumns, gt, or, sql } from "drizzle-orm";
-import { GetAllReportsRequest, GetAllReportsResponse } from "../dto/report/get_all_reports_dto";
+import {
+    GetAllReportsRequest,
+    GetAllReportsResponse,
+} from "../dto/report/get_all_reports_dto";
 import { ApiError } from "../utils/ApiError";
+import { GetReportResponse } from "../dto/report/get_report_dto";
 
+export const getReport = asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+        /* Company Id and report id  */
+        const companyId = Number(req?.query?.companyId);
+        const reportId = Number(req?.query?.reportId);
 
+        /* Finding the report */
+        const reportsFound = await db.db
+            .select()
+            .from(reports)
+            .where(
+                and(
+                    eq(reports.companyId, companyId),
+                    eq(reports.reportId, reportId),
+                    eq(reports.requestedBy, req?.user?.userId as string)
+                )
+            );
+
+        /* Report not found */
+        if (!reportsFound.length) {
+            throw new ApiError(404, "no report found", []);
+        }
+
+        return res.status(200).json(
+            new ApiResponse<GetReportResponse>(200, {
+                report: reportsFound[0],
+            })
+        );
+    }
+);
 export const getAllReports = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
         const body = req.body as GetAllReportsRequest;
@@ -47,42 +80,18 @@ export const getAllReports = asyncHandler(
                     )
                 ),
                 eq(reports.companyId, body.companyId),
+                eq(reports.requestedBy, req?.user?.userId as string)
             );
         } else {
-            whereClause = eq(reports.companyId, body.companyId);
-        }
-
-        /* All report columns */
-        const reportCloumns = getTableColumns(reports);
-
-        /* Default cols to select always */
-        let colsToSelect = {
-            reportId: reports.reportId,
-            createdAt: reports.createdAt,
-        };
-
-        /* If select is passed */
-        if (body?.select) {
-            /* Keys of all report columns */
-            const reportColumnKeys = Object.keys(reportCloumns);
-
-            /* Add column to colsToSelect */
-            body.select?.forEach((col) => {
-                /* If column name is invalid throw error */
-                if (!reportColumnKeys.includes(col)) {
-                    throw new ApiError(422, `invalid col to select ${col}`, []);
-                }
-
-                colsToSelect = { ...colsToSelect, [col]: reportCloumns[col] };
-            });
-        } else {
-            /* Else, select all columns */
-            colsToSelect = reportCloumns;
+            whereClause = and(
+                eq(reports.companyId, body.companyId),
+                eq(reports.requestedBy, req?.user?.userId as string)
+            );
         }
 
         /* DB Query */
         const allReports = await db.db
-            .select(colsToSelect)
+            .select()
             .from(reports)
             .where(whereClause)
             .limit(body.pageSize)
@@ -99,7 +108,7 @@ export const getAllReports = asyncHandler(
         }
 
         return res.status(200).json(
-            new ApiResponse<GetAllReportsResponse<typeof allReports>>(200, {
+            new ApiResponse<GetAllReportsResponse>(200, {
                 reports: allReports,
                 hasNextPage: nextPageCursor ? true : false,
                 nextPageCursor: nextPageCursor,
@@ -125,10 +134,13 @@ export const getDayEndSummaryReport = asyncHandler(
                 reportName: REPORT_TYPES.dayEndSummaryReport,
                 companyId: body.companyId,
                 status: REPORT_STATUS_TYPES.inProgress,
-                fromDateTime: moment.utc(
-                    `${body.fromDateTime} ${body.dayStartTime}`
-                ).toDate(),
-                toDateTime: moment.utc(`${body.toDateTime} ${endTime}`).toDate(),
+                fromDateTime: moment
+                    .utc(`${body.fromDateTime} ${body.dayStartTime}`)
+                    .toDate(),
+                toDateTime: moment
+                    .utc(`${body.toDateTime} ${endTime}`)
+                    .add(1, "day")
+                    .toDate(),
                 requestedBy: req?.user?.userId,
             })
             .returning();
@@ -367,7 +379,6 @@ export const getDayEndSummaryReport = asyncHandler(
                 `${REPORT_TYPES.dayEndSummaryReport}-${crypto.randomUUID()}`
             );
         } catch (error) {
-
             /* On error update reports status in DB */
             await db.db
                 .update(reports)

@@ -1,6 +1,13 @@
-import { body } from "express-validator";
+import { body, query } from "express-validator";
 import { REGEX } from "../constants";
 
+
+export const getReportValidator = () => {
+    return [
+        query("companyId").isInt().withMessage("invalid company id "),
+        query("reportId").isInt().withMessage("invalid report id")
+    ]
+}
 export const getAllReportsValidator = () => {
     return [
         body("companyId").isInt().withMessage("invalid companyId field"),

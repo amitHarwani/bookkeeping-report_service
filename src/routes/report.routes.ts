@@ -1,17 +1,28 @@
-import { Router } from "express";
+import { NextFunction, Request, Response, Router } from "express";
 import {
     getAllReportsValidator,
     getDayEndSummaryReportValidator,
+    getReportValidator,
 } from "../validators/report.validators";
 import { validateInput } from "../validators";
 import { checkAccess } from "../middlewares/auth.middleware";
 import {
     getAllReports,
     getDayEndSummaryReport,
+    getReport,
 } from "../controllers/report.controllers";
 
 const router = Router();
 
+router.get(
+    "/get-report",
+    getReportValidator(),
+    validateInput,
+    (req: Request, res: Response, next: NextFunction) => {
+        checkAccess(33, Number(req?.query?.companyId))(req, res, next);
+    },
+    getReport
+);
 router.post(
     "/get-all-reports",
     getAllReportsValidator(),

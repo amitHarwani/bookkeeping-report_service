@@ -8,14 +8,13 @@ export class GetAllReportsRequest {
         public cursor?: {
             createdAt: Date;
             reportId: number;
-        },
-        public select?: [keyof Report]
+        }
     ) {}
 }
 
-export class GetAllReportsResponse<T> {
+export class GetAllReportsResponse {
     constructor(
-        public reports: T,
+        public reports: Array<Report>,
         public hasNextPage: boolean,
         public nextPageCursor?: {
             createdAt: Date;

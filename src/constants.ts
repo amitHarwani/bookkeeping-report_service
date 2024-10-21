@@ -14,7 +14,7 @@ export const DATE_TIME_FORMATS = {
 
 
 export enum REPORT_TYPES {
-    dayEndSummaryReport = "day_end_summary_report"
+    dayEndSummaryReport = "DAY_END_SUMMARY_REPORT"
 }
 
 export enum REPORT_STATUS_TYPES {
