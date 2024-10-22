@@ -13,8 +13,12 @@ export const DATE_TIME_FORMATS = {
 };
 
 
+/* Should be same as Platform features name, 
+as this is added as name to the reports table, and is used by the client
+to display the reports dropdown selector */
 export enum REPORT_TYPES {
-    dayEndSummaryReport = "DAY_END_SUMMARY_REPORT"
+    dayEndSummaryReport = "DAY_END_SUMMARY_REPORT",
+    dayEndDetailedReport = "DAY_END_DETAILED_REPORT"
 }
 
 export enum REPORT_STATUS_TYPES {

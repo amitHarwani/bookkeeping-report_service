@@ -2,6 +2,7 @@ import { NextFunction, Request, Response, Router } from "express";
 import {
     deleteReportValidator,
     getAllReportsValidator,
+    getDayEndDetailedReportValidator,
     getDayEndSummaryReportValidator,
     getReportValidator,
 } from "../validators/report.validators";
@@ -10,6 +11,7 @@ import { checkAccess } from "../middlewares/auth.middleware";
 import {
     deleteReport,
     getAllReports,
+    getDayEndDetailedReport,
     getDayEndSummaryReport,
     getReport,
 } from "../controllers/report.controllers";
@@ -38,6 +40,14 @@ router.post(
     validateInput,
     checkAccess(34),
     getDayEndSummaryReport
+);
+
+router.post(
+    "/get-day-end-detailed",
+    getDayEndDetailedReportValidator(),
+    validateInput,
+    checkAccess(35),
+    getDayEndDetailedReport
 );
 
 router.delete(

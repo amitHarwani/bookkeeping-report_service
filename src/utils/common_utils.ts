@@ -40,6 +40,23 @@ export const autosizeColumn = (
     );
 };
 
+/* Autosize all columns based upon added row */
+export const autosizeAllColumns = (
+    worksheet: ExcelJS.Worksheet,
+    rowAdded: { [key: string]: any }
+) => {
+    Object.keys(rowAdded).forEach((colKey) => {
+        const column = worksheet.getColumn(colKey);
+
+        /* New width is max of current width, the width of the header or the length of the data  added */
+        column.width = Math.max(
+            column.width || 0,
+            (column.header?.length || 0) + 5,
+            rowAdded[colKey]?.toString()?.length || 0
+        );
+    });
+};
+
 /* Add Header Style to Report sheet based on style type */
 export const addHeaderStyle = (
     worksheet: ExcelJS.Worksheet,

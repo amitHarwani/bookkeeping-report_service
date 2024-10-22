@@ -1,39 +1,50 @@
+import { reports } from "db_service";
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import ExcelJS from "exceljs";
 import { NextFunction, Request, Response } from "express";
+import fs from "fs";
 import moment from "moment";
-import momentTimezone from "moment-timezone";
 import QueryStream from "pg-query-stream";
 import * as DAY_END_SUMMARY_CONFIG from "../config/get_day_end_summary_report_config";
+import * as DAY_END_DETAILED_CONFIG from "../config/get_day_end_detailed_report_config";
 import {
     DATE_TIME_FORMATS,
     REPORT_STATUS_TYPES,
     REPORT_TYPES,
 } from "../constants";
 import * as db from "../db";
-import {
-    GetDayEndSummaryReportRequest,
-    GetDayEndSummaryReportResponse,
-} from "../dto/report/get_day_end_summary_report_dto";
-import { DAY_END_SUMMARY_QUERIES } from "../queries/get_day_end_summary_report_queries";
-import asyncHandler from "../utils/async_handler";
-import {
-    addHeaderStyle,
-    autosizeColumn,
-    convertUTCStringToTimezonedString,
-    getTempReportFilePath,
-} from "../utils/common_utils";
-import { deleteFile, getFileIDFromWebLink, uploadReportFile } from "../utils/cloud_storage";
-import { ApiResponse } from "../utils/ApiResponse";
-import { reports } from "db_service";
-import { and, asc, desc, eq, getTableColumns, gt, or, sql } from "drizzle-orm";
+import { DeleteReportResponse } from "../dto/report/delete_report_dto";
 import {
     GetAllReportsRequest,
     GetAllReportsResponse,
 } from "../dto/report/get_all_reports_dto";
-import { ApiError } from "../utils/ApiError";
+import {
+    GetDayEndDetailedReportResponse,
+    GetDayEndDetailsReportRequest,
+} from "../dto/report/get_day_end_detailed_report_dto";
+import {
+    GetDayEndSummaryReportRequest,
+    GetDayEndSummaryReportResponse,
+} from "../dto/report/get_day_end_summary_report_dto";
 import { GetReportResponse } from "../dto/report/get_report_dto";
-import fs from "fs";
-import { DeleteReportResponse } from "../dto/report/delete_report_dto";
+import { DAY_END_SUMMARY_QUERIES } from "../queries/get_day_end_summary_report_queries";
+import { ApiError } from "../utils/ApiError";
+import { ApiResponse } from "../utils/ApiResponse";
+import asyncHandler from "../utils/async_handler";
+import {
+    deleteFile,
+    getFileIDFromWebLink,
+    uploadReportFile,
+} from "../utils/cloud_storage";
+import {
+    addHeaderStyle,
+    autosizeAllColumns,
+    autosizeColumn,
+    convertUTCStringToTimezonedString,
+    getTempReportFilePath,
+} from "../utils/common_utils";
+import { DAY_END_DETAILED_QUERIES } from "../queries/get_day_end_detailed_report_queries";
+import logger from "../utils/logger";
 
 export const getReport = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -119,42 +130,49 @@ export const getAllReports = asyncHandler(
     }
 );
 
-export const deleteReport = asyncHandler(async(req: Request, res: Response, next: NextFunction) => {
-    /* Company Id and Report ID */
-    const companyId = Number(req?.query?.companyId);
-    const reportId = Number(req?.query?.reportId);
+export const deleteReport = asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+        /* Company Id and Report ID */
+        const companyId = Number(req?.query?.companyId);
+        const reportId = Number(req?.query?.reportId);
 
-    /* Deleting the report from reports table */
-    const deletedReport = await db.db.delete(reports).where(and(
-        eq(reports.reportId, reportId),
-        eq(reports.companyId, companyId),
-        eq(reports.requestedBy, req?.user?.userId as string)
-    )).returning()
+        /* Deleting the report from reports table */
+        const deletedReport = await db.db
+            .delete(reports)
+            .where(
+                and(
+                    eq(reports.reportId, reportId),
+                    eq(reports.companyId, companyId),
+                    eq(reports.requestedBy, req?.user?.userId as string)
+                )
+            )
+            .returning();
 
-    /* If report does not exist */
-    if(!deletedReport.length){
-        throw new ApiError(400, "invalid details passed", []);
-    }
-
-    /* Report Link */
-    const reportLink = deletedReport[0].reportLink;
-
-    /* If report link exists */
-    if(reportLink){
-
-        /* File ID */
-        const fileId = getFileIDFromWebLink(reportLink)
-
-        /* If File ID exists, delete the file from cloud storage */
-        if(fileId){
-            await deleteFile(fileId);
+        /* If report does not exist */
+        if (!deletedReport.length) {
+            throw new ApiError(400, "invalid details passed", []);
         }
-    }
-    return res.status(200).json(new ApiResponse<DeleteReportResponse>(200, {
-        message: "report deleted successfully"
-    }))
 
-})
+        /* Report Link */
+        const reportLink = deletedReport[0].reportLink;
+
+        /* If report link exists */
+        if (reportLink) {
+            /* File ID */
+            const fileId = getFileIDFromWebLink(reportLink);
+
+            /* If File ID exists, delete the file from cloud storage */
+            if (fileId) {
+                await deleteFile(fileId);
+            }
+        }
+        return res.status(200).json(
+            new ApiResponse<DeleteReportResponse>(200, {
+                message: "report deleted successfully",
+            })
+        );
+    }
+);
 
 export const getDayEndSummaryReport = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -417,6 +435,17 @@ export const getDayEndSummaryReport = asyncHandler(
                 fileName,
                 `${REPORT_TYPES.dayEndSummaryReport}-${crypto.randomUUID()}`
             );
+
+            /* Update reports table, with status as complete and the report link
+            Surrounding in try catch as the response is already sent.
+            */
+            await db.db
+                .update(reports)
+                .set({
+                    reportLink: reportLink,
+                    status: REPORT_STATUS_TYPES.completed,
+                })
+                .where(eq(reports.reportId, reportRequestAdded[0].reportId));
         } catch (error) {
             /* On error update reports status in DB */
             await db.db
@@ -428,11 +457,324 @@ export const getDayEndSummaryReport = asyncHandler(
         } finally {
             /* Always release the client */
             client.release();
+            
+            /* Delete the temporary file */
+            fs.unlinkSync(fileName);
         }
-        /* Update reports table, with status as complete and the report link
-            Surrounding in try catch as the response is already sent.
-        */
+    }
+);
+
+/* Format and add row to worksheet */
+const addRowToWorksheet = (
+    worksheet: ExcelJS.Worksheet,
+    row: { [key: string]: any },
+    dateTimeConversionFields: { [headerKey: string]: boolean },
+    numberFields: { [headerKey: string]: boolean },
+    timezone: string
+) => {
+    /* For each key in row */
+    Object.keys(row).forEach((key) => {
+        /* If the field is a date time field and needs to be converted to another timezone */
+        if (dateTimeConversionFields?.[key]) {
+            /* Converting timezone */
+            if (row?.[key]) {
+                row[key] = convertUTCStringToTimezonedString(
+                    row[key] as string,
+                    timezone,
+                    DATE_TIME_FORMATS.dateTimeFormat24hr
+                );
+            }
+        }
+        /* Number field formatting */
+        if (numberFields?.[key]) {
+            row[key] = Number(row[key]);
+        }
+    });
+    /* Add Row, auto size columns and then commit the row */
+    worksheet.addRow(row);
+    autosizeAllColumns(worksheet, row);
+    worksheet.getRow(worksheet.rowCount).commit();
+};
+export const getDayEndDetailedReport = asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+        /* Request Body */
+        const body = req.body as GetDayEndDetailsReportRequest;
+
+        /* End Time is the day start time - 1 second */
+        const endTime = moment(`${body.fromDateTime} ${body.dayStartTime}`)
+            .subtract(1, "seconds")
+            .format("HH:mm:ss");
+
+        /* Start Date Time: 'From Date  Day Start Time' */
+        const startDateTime = `${body.fromDateTime} ${body.dayStartTime}`;
+
+        /* End date time: 'From Date Day End Time'  + 1 day */
+        const endDateTime = moment
+            .utc(`${body.fromDateTime} ${endTime}`)
+            .add(1, "day")
+            .format(DATE_TIME_FORMATS.dateTimeFormat24hr);
+
+        /* Inserting into reports table */
+        const reportRequestAdded = await db.db
+            .insert(reports)
+            .values({
+                reportName: REPORT_TYPES.dayEndDetailedReport,
+                companyId: body.companyId,
+                status: REPORT_STATUS_TYPES.inProgress,
+                fromDateTime: moment.utc(`${startDateTime}`).toDate(),
+                toDateTime: moment.utc(`${endDateTime}`).toDate(),
+                requestedBy: req?.user?.userId,
+            })
+            .returning();
+
+        /* Sending the response */
+        res.status(200).json(
+            new ApiResponse<GetDayEndDetailedReportResponse>(200, {
+                message: "in progress",
+            })
+        );
+
+        /* Temporary File Name */
+        const fileName = getTempReportFilePath();
+
+        /* Excel Workbook */
+        const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+            filename: fileName,
+            useStyles: true,
+        });
+
+        /* Stores the references to all the worksheets */
+        const worksheetReferences: {
+            [worksheetKey: string]: ExcelJS.Worksheet;
+        } = {};
+
+        /* For each worksheet key in config */
+        Object.keys(DAY_END_DETAILED_CONFIG.WORKSHEETS).forEach(
+            (worksheetKey) => {
+                /* Worksheet Info */
+                const worksheetInfo =
+                    DAY_END_DETAILED_CONFIG.WORKSHEETS[worksheetKey];
+
+                /* Adding the worksheet */
+                const newWorksheet = workbook.addWorksheet(
+                    worksheetInfo.worksheetName
+                );
+
+                /* Setting its columns from the config */
+                newWorksheet.columns = worksheetInfo.columns;
+
+                /* Adding header style to the worksheet */
+                addHeaderStyle(newWorksheet, 1);
+
+                /* Adding to worksheet references */
+                worksheetReferences[worksheetKey] = newWorksheet;
+            }
+        );
+
+        /* Getting the postgres client */
+        const client = await db.getClient();
+
+        let reportLink;
+
         try {
+            /* Sales Query */
+            const salesQueryPromise = new Promise((resolve, reject) => {
+                /* Sales Query Stream */
+                const query = new QueryStream(
+                    DAY_END_DETAILED_QUERIES.salesQuery,
+                    [body.companyId, startDateTime, endDateTime]
+                );
+
+                const stream = client.query(query);
+
+                /* On Data */
+                stream.on("data", (chunk) => {
+                    /* Format and add Row to worksheet */
+                    addRowToWorksheet(
+                        worksheetReferences?.SALES,
+                        chunk,
+                        DAY_END_DETAILED_CONFIG.DateTimeConversionFields,
+                        DAY_END_DETAILED_CONFIG.NumberFields,
+                        body.timezone
+                    );
+                });
+
+                /* On End resolve the promise */
+                stream.on("end", async () => {
+                    /* Commit the worksheet */
+                    worksheetReferences.SALES.commit();
+                    resolve(true);
+                });
+
+                /* On Error Reject the promies */
+                stream.on("error", (error) => {
+                    reject(error);
+                });
+            });
+
+            /* Purchases Query */
+            const purchasesQueryPromise = new Promise((resolve, reject) => {
+                /* Purchases Query Stream */
+                const query = new QueryStream(
+                    DAY_END_DETAILED_QUERIES.purchasesQuery,
+                    [body.companyId, startDateTime, endDateTime]
+                );
+
+                const stream = client.query(query);
+
+                /* On Data */
+                stream.on("data", (chunk) => {
+                    /* Format and add Row to worksheet */
+                    addRowToWorksheet(
+                        worksheetReferences?.PURCHASES,
+                        chunk,
+                        DAY_END_DETAILED_CONFIG.DateTimeConversionFields,
+                        DAY_END_DETAILED_CONFIG.NumberFields,
+                        body.timezone
+                    );
+                });
+
+                /* On End resolve the promise */
+                stream.on("end", async () => {
+                    /* Commit the worksheet */
+                    worksheetReferences.PURCHASES.commit();
+                    resolve(true);
+                });
+
+                /* On Error Reject the promies */
+                stream.on("error", (error) => {
+                    reject(error);
+                });
+            });
+
+            /* Sale Returns Query */
+            const saleReturnsQueryPromise = new Promise((resolve, reject) => {
+                /* Sales Return Query Stream */
+                const query = new QueryStream(
+                    DAY_END_DETAILED_QUERIES.saleReturnsQuery,
+                    [body.companyId, startDateTime, endDateTime]
+                );
+
+                const stream = client.query(query);
+
+                /* On Data */
+                stream.on("data", (chunk) => {
+                    /* Format and add Row to worksheet */
+                    addRowToWorksheet(
+                        worksheetReferences?.SALE_RETURNS,
+                        chunk,
+                        DAY_END_DETAILED_CONFIG.DateTimeConversionFields,
+                        DAY_END_DETAILED_CONFIG.NumberFields,
+                        body.timezone
+                    );
+                });
+
+                /* On End resolve the promise */
+                stream.on("end", async () => {
+                    /* Commit the worksheet */
+                    worksheetReferences.SALE_RETURNS.commit();
+                    resolve(true);
+                });
+
+                /* On Error Reject the promies */
+                stream.on("error", (error) => {
+                    reject(error);
+                });
+            });
+
+            /* Purchase Returns Query */
+            const purchaseReturnsQueryPromise = new Promise(
+                (resolve, reject) => {
+                    /* Purchase returns Query Stream */
+                    const query = new QueryStream(
+                        DAY_END_DETAILED_QUERIES.purchaseReturnsQuery,
+                        [body.companyId, startDateTime, endDateTime]
+                    );
+
+                    const stream = client.query(query);
+
+                    /* On Data */
+                    stream.on("data", (chunk) => {
+                        /* Format and add Row to worksheet */
+                        addRowToWorksheet(
+                            worksheetReferences?.PURCHASE_RETURNS,
+                            chunk,
+                            DAY_END_DETAILED_CONFIG.DateTimeConversionFields,
+                            DAY_END_DETAILED_CONFIG.NumberFields,
+                            body.timezone
+                        );
+                    });
+
+                    /* On End resolve the promise */
+                    stream.on("end", async () => {
+                        /* Commit the worksheet */
+                        worksheetReferences.PURCHASE_RETURNS.commit();
+                        resolve(true);
+                    });
+
+                    /* On Error Reject the promies */
+                    stream.on("error", (error) => {
+                        reject(error);
+                    });
+                }
+            );
+
+            /* Cash In Out Details Query */
+            const cashInOutDetailsQueryPromise = new Promise(
+                (resolve, reject) => {
+                    /* Cash In Out Details Query Stream */
+                    const query = new QueryStream(
+                        DAY_END_DETAILED_QUERIES.cashInOutDetailsQuery,
+                        [body.companyId, startDateTime, endDateTime]
+                    );
+
+                    const stream = client.query(query);
+
+                    /* On Data */
+                    stream.on("data", (chunk) => {
+                        /* Format and add Row to worksheet */
+                        addRowToWorksheet(
+                            worksheetReferences?.CASH_IN_OUT_DETAILS,
+                            chunk,
+                            DAY_END_DETAILED_CONFIG.DateTimeConversionFields,
+                            DAY_END_DETAILED_CONFIG.NumberFields,
+                            body.timezone
+                        );
+                    });
+
+                    /* On End resolve the promise */
+                    stream.on("end", async () => {
+                        /* Commit the worksheet */
+                        worksheetReferences.CASH_IN_OUT_DETAILS.commit();
+                        resolve(true);
+                    });
+
+                    /* On Error Reject the promies */
+                    stream.on("error", (error) => {
+                        reject(error);
+                    });
+                }
+            );
+            /* Wait for all promises to resolve */
+            await Promise.all([
+                salesQueryPromise,
+                purchasesQueryPromise,
+                saleReturnsQueryPromise,
+                purchaseReturnsQueryPromise,
+                cashInOutDetailsQueryPromise,
+            ]);
+            /* Commit the workbook */
+            await workbook.commit();
+
+            /* Uploading report to cloud storage and storing the report link */
+            reportLink = await uploadReportFile(
+                fileName,
+                `${REPORT_TYPES.dayEndSummaryReport}-${crypto.randomUUID()}`
+            );
+
+            /* Update reports table, with status as complete and the report link
+            Surrounding in try catch as the response is already sent.
+            */
             await db.db
                 .update(reports)
                 .set({
@@ -440,9 +782,20 @@ export const getDayEndSummaryReport = asyncHandler(
                     status: REPORT_STATUS_TYPES.completed,
                 })
                 .where(eq(reports.reportId, reportRequestAdded[0].reportId));
-    
+        } catch (error) {
+            /* On error update reports status in DB */
+            await db.db
+                .update(reports)
+                .set({
+                    status: REPORT_STATUS_TYPES.error,
+                })
+                .where(eq(reports.reportId, reportRequestAdded[0].reportId));
+        } finally {
+            /* Always release the client */
+            client.release();
+
             /* Delete the temporary file */
             fs.unlinkSync(fileName);
-        } catch (error) {}
+        }
     }
 );
