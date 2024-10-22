@@ -9,6 +9,7 @@ import * as DAY_END_SUMMARY_CONFIG from "../config/get_day_end_summary_report_co
 import * as DAY_END_DETAILED_CONFIG from "../config/get_day_end_detailed_report_config";
 import * as SALE_REPORT_CONFIG from "../config/get_sale_report_config";
 import * as PURCHASE_REPORT_CONFIG from "../config/get_purchase_report_config";
+import * as SALE_RETURN_REPORT_CONFIG from "../config/get_sale_return_report_config";
 import {
     DATE_TIME_FORMATS,
     REPORT_STATUS_TYPES,
@@ -54,6 +55,8 @@ import {
 import { SALE_REPORT_QUERIES } from "../queries/get_sale_report_queries";
 import { GetPurchaseReportRequest, GetPurchaseReportResponse } from "../dto/report/get_purchase_report_dto";
 import { PURCHASE_REPORT_QUERIES } from "../queries/get_purchase_report_queries";
+import { GetSaleReturnReportRequest, GetSaleReturnReportResponse } from "../dto/report/get_sale_return_report_dto";
+import { SALE_RETURN_QUERIES } from "../queries/get_sale_return_report_queries";
 
 export const getReport = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -1088,4 +1091,145 @@ export const getPurchaseReport = asyncHandler(
         }
     }
 );
+
+export const getSaleReturnReport = asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+        /* Request Body */
+        const body = req.body as GetSaleReturnReportRequest;
+
+        /* Inserting into reports table */
+        const reportRequestAdded = await db.db
+            .insert(reports)
+            .values({
+                reportName: REPORT_TYPES.saleReturnReport,
+                companyId: body.companyId,
+                status: REPORT_STATUS_TYPES.inProgress,
+                fromDateTime: moment.utc(`${body.fromDateTime}`).toDate(),
+                toDateTime: moment.utc(`${body.toDateTime}`).toDate(),
+                requestedBy: req?.user?.userId,
+            })
+            .returning();
+
+        /* Sending the response */
+        res.status(200).json(
+            new ApiResponse<GetSaleReturnReportResponse>(200, {
+                message: "in progress",
+            })
+        );
+
+        /* Temporary File Name */
+        const fileName = getTempReportFilePath();
+
+        /* Excel Workbook */
+        const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+            filename: fileName,
+            useStyles: true,
+        });
+
+        /* Stores the references to all the worksheets */
+        const worksheetReferences: {
+            [worksheetKey: string]: ExcelJS.Worksheet;
+        } = {};
+
+        /* For each worksheet key in config */
+        Object.keys(SALE_RETURN_REPORT_CONFIG.WORKSHEETS).forEach((worksheetKey) => {
+            /* Worksheet Info */
+            const worksheetInfo = SALE_RETURN_REPORT_CONFIG.WORKSHEETS[worksheetKey];
+
+            /* Adding the worksheet */
+            const newWorksheet = workbook.addWorksheet(
+                worksheetInfo.worksheetName
+            );
+
+            /* Setting its columns from the config */
+            newWorksheet.columns = worksheetInfo.columns;
+
+            /* Adding header style to the worksheet */
+            addHeaderStyle(newWorksheet, 1);
+
+            /* Adding to worksheet references */
+            worksheetReferences[worksheetKey] = newWorksheet;
+        });
+
+        /* Getting the postgres client */
+        const client = await db.getClient();
+
+        let reportLink;
+
+        try {
+            /* Sale Returns Query */
+            const salesReturnsQueryPromise = new Promise((resolve, reject) => {
+                /* Purchases Query Stream */
+                const query = new QueryStream(
+                    SALE_RETURN_QUERIES.saleReturnsQuery,
+                    [body.companyId, body.fromDateTime, body.toDateTime]
+                );
+
+                const stream = client.query(query);
+
+                /* On Data */
+                stream.on("data", (chunk) => {
+                    /* Format and add Row to worksheet */
+                    addRowToWorksheet(
+                        worksheetReferences?.SALE_RETURNS,
+                        chunk,
+                        PURCHASE_REPORT_CONFIG.DateTimeConversionFields,
+                        PURCHASE_REPORT_CONFIG.NumberFields,
+                        body.timezone
+                    );
+                });
+
+                /* On End resolve the promise */
+                stream.on("end", async () => {
+                    /* Commit the worksheet */
+                    worksheetReferences.SALE_RETURNS.commit();
+                    resolve(true);
+                });
+
+                /* On Error Reject the promies */
+                stream.on("error", (error) => {
+                    reject(error);
+                });
+            });
+
+            /* Wait for all promises to resolve */
+            await salesReturnsQueryPromise;
+
+            /* Commit the workbook */
+            await workbook.commit();
+
+            /* Uploading report to cloud storage and storing the report link */
+            reportLink = await uploadReportFile(
+                fileName,
+                `${REPORT_TYPES.saleReturnReport}-${crypto.randomUUID()}`
+            );
+
+            /* Update reports table, with status as complete and the report link
+            Surrounding in try catch as the response is already sent.
+            */
+            await db.db
+                .update(reports)
+                .set({
+                    reportLink: reportLink,
+                    status: REPORT_STATUS_TYPES.completed,
+                })
+                .where(eq(reports.reportId, reportRequestAdded[0].reportId));
+        } catch (error) {
+            /* On error update reports status in DB */
+            await db.db
+                .update(reports)
+                .set({
+                    status: REPORT_STATUS_TYPES.error,
+                })
+                .where(eq(reports.reportId, reportRequestAdded[0].reportId));
+        } finally {
+            /* Always release the client */
+            client.release();
+
+            /* Delete the temporary file */
+            fs.unlinkSync(fileName);
+        }
+    }
+);
+
 

@@ -7,6 +7,7 @@ import {
     getPurchaseReportValidator,
     getReportValidator,
     getSaleReportValidator,
+    getSaleReturnReportValidator,
 } from "../validators/report.validators";
 import { validateInput } from "../validators";
 import { checkAccess } from "../middlewares/auth.middleware";
@@ -18,6 +19,7 @@ import {
     getPurchaseReport,
     getReport,
     getSaleReport,
+    getSaleReturnReport,
 } from "../controllers/report.controllers";
 
 const router = Router();
@@ -69,6 +71,15 @@ router.post(
     checkAccess(37),
     getPurchaseReport
 );
+
+router.post(
+    "/get-sale-return-report",
+    getSaleReturnReportValidator(),
+    validateInput,
+    checkAccess(38),
+    getSaleReturnReport
+);
+
 
 
 router.delete(
