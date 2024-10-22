@@ -5,6 +5,7 @@ import {
     getDayEndDetailedReportValidator,
     getDayEndSummaryReportValidator,
     getPurchaseReportValidator,
+    getPurchaseReturnReportValidator,
     getReportValidator,
     getSaleReportValidator,
     getSaleReturnReportValidator,
@@ -17,6 +18,7 @@ import {
     getDayEndDetailedReport,
     getDayEndSummaryReport,
     getPurchaseReport,
+    getPurchaseReturnReport,
     getReport,
     getSaleReport,
     getSaleReturnReport,
@@ -79,6 +81,15 @@ router.post(
     checkAccess(38),
     getSaleReturnReport
 );
+
+router.post(
+    "/get-purchase-return-report",
+    getPurchaseReturnReportValidator(),
+    validateInput,
+    checkAccess(39),
+    getPurchaseReturnReport
+);
+
 
 
 

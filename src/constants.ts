@@ -21,7 +21,8 @@ export enum REPORT_TYPES {
     dayEndDetailedReport = "DAY_END_DETAILED_REPORT",
     saleReport = "SALE_REPORT",
     purchaseReport = "PURCHASE_REPORT",
-    saleReturnReport = "SALE_RETURN_REPORT"
+    saleReturnReport = "SALE_RETURN_REPORT",
+    purchaseReturnReport = "PURCHASE_RETURN_REPORT"
 }
 
 export enum REPORT_STATUS_TYPES {
