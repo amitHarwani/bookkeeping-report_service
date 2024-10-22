@@ -19,7 +19,8 @@ to display the reports dropdown selector */
 export enum REPORT_TYPES {
     dayEndSummaryReport = "DAY_END_SUMMARY_REPORT",
     dayEndDetailedReport = "DAY_END_DETAILED_REPORT",
-    saleReport = "SALE_REPORT"
+    saleReport = "SALE_REPORT",
+    purchaseReport = "PURCHASE_REPORT"
 }
 
 export enum REPORT_STATUS_TYPES {

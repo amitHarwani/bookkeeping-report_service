@@ -4,6 +4,7 @@ import {
     getAllReportsValidator,
     getDayEndDetailedReportValidator,
     getDayEndSummaryReportValidator,
+    getPurchaseReportValidator,
     getReportValidator,
     getSaleReportValidator,
 } from "../validators/report.validators";
@@ -14,6 +15,7 @@ import {
     getAllReports,
     getDayEndDetailedReport,
     getDayEndSummaryReport,
+    getPurchaseReport,
     getReport,
     getSaleReport,
 } from "../controllers/report.controllers";
@@ -58,6 +60,14 @@ router.post(
     validateInput,
     checkAccess(36),
     getSaleReport
+);
+
+router.post(
+    "/get-purchase-report",
+    getPurchaseReportValidator(),
+    validateInput,
+    checkAccess(37),
+    getPurchaseReport
 );
 
 
