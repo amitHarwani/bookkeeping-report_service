@@ -21,6 +21,7 @@ export const DAY_END_DETAILED_QUERIES = {
     where s.company_id = $1
     and 
     s.created_at >= $2 and s.created_at <= $3
+	order by s.created_at 
     `,
 
     purchasesQuery: `
@@ -46,6 +47,7 @@ export const DAY_END_DETAILED_QUERIES = {
     where p.company_id = $1
     and 
     p.created_at >= $2 and p.created_at <= $3
+	order by p.created_at
     `,
 
     saleReturnsQuery: `
@@ -63,6 +65,7 @@ export const DAY_END_DETAILED_QUERIES = {
     where sr.company_id = $1
     and 
     sr.created_at >= $2 and sr.created_at <= $3
+	order by sr.created_at
     `,
 
     purchaseReturnsQuery: `
@@ -81,6 +84,7 @@ export const DAY_END_DETAILED_QUERIES = {
     where pr.company_id = $1
     and 
     pr.created_at >= $2 and pr.created_at <= $3
+	order by pr.created_at 
     `,
 
     cashInOutDetailsQuery: `
@@ -94,5 +98,6 @@ export const DAY_END_DETAILED_QUERIES = {
     where cio.company_id = $1
     and
     cio.transaction_date_time >= $2 and cio.transaction_date_time <= $3
+	order by cio.transaction_date_time 
     `
 }

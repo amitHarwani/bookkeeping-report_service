@@ -5,6 +5,7 @@ import {
     getDayEndDetailedReportValidator,
     getDayEndSummaryReportValidator,
     getReportValidator,
+    getSaleReportValidator,
 } from "../validators/report.validators";
 import { validateInput } from "../validators";
 import { checkAccess } from "../middlewares/auth.middleware";
@@ -14,6 +15,7 @@ import {
     getDayEndDetailedReport,
     getDayEndSummaryReport,
     getReport,
+    getSaleReport,
 } from "../controllers/report.controllers";
 
 const router = Router();
@@ -49,6 +51,15 @@ router.post(
     checkAccess(35),
     getDayEndDetailedReport
 );
+
+router.post(
+    "/get-sale-report",
+    getSaleReportValidator(),
+    validateInput,
+    checkAccess(36),
+    getSaleReport
+);
+
 
 router.delete(
     "/delete-report",
