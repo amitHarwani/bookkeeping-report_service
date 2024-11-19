@@ -4,12 +4,7 @@ import path from "path";
 import logger from "./logger";
 
 const auth = new google.auth.GoogleAuth({
-    keyFile: path.join(
-        __dirname,
-        "..",
-        "..",
-        process.env.GOOGLE_APPLICATION_CREDENTIALS_FILE as string
-    ),
+    credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS as string),
     scopes: ["https://www.googleapis.com/auth/drive.file"],
 });
 
