@@ -12,7 +12,7 @@ RUN npm install -g typescript@5.5.4
 COPY package*.json ./
 
 # Installing libraries (SSH mount type to install private git repo: db_service, 
-# SSH socker or key file passed in build command)
+# SSH socket or key file passed in build command)
 RUN --mount=type=ssh \
 npm ci
 
