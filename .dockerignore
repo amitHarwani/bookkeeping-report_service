@@ -1,0 +1,11 @@
+node_modules
+.npm
+dist
+.env
+.env.*
+.gitignore
+.prettierignore
+.prettierrc
+bookkeeping-439306-b0e98e89a609.json
+README.md
+temp_report

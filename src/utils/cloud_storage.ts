@@ -3,8 +3,21 @@ import fs from "fs";
 import path from "path";
 import logger from "./logger";
 
+/* Credentials string from enviornment variable or file */
+let credentialsString = "";
+
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    credentialsString = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+} else {
+    /* Credentials string from file */
+    credentialsString = fs.readFileSync(
+        process.env.GOOGLE_APPLICATION_CREDENTIALS_FILE as string,
+        "utf-8"
+    );
+}
+
 const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS as string),
+    credentials: JSON.parse(credentialsString),
     scopes: ["https://www.googleapis.com/auth/drive.file"],
 });
 
@@ -37,7 +50,9 @@ export const getAllFiles = async () => {
 
     const files = await drive.files.list();
 
-    logger.info(`Files In Drive ${files.data.files?.length}  === ${JSON.stringify(files.data.files)}`);
+    logger.info(
+        `Files In Drive ${files.data.files?.length}  === ${JSON.stringify(files.data.files)}`
+    );
 };
 export const uploadReportFile = async (
     filePath: string,
