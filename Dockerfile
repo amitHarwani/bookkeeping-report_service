@@ -26,6 +26,12 @@ FROM node:20.10.0-slim
 
 WORKDIR /usr/src/app
 
+# Create temp reports directory
+RUN mkdir temp_reports
+
+# Give node user the permission to access the directory
+RUN chown -R node:node /usr/src/app/temp_reports
+
 # Node user (Instead of using the root user)
 USER node
 

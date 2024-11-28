@@ -18,7 +18,9 @@ export type Report = InferSelectModel<typeof schema.reports>
 
 const { Pool } = pg;
 
-const pool = new Pool();
+const pool = new Pool({
+    connectionString: DB_URL
+});
 
 export const query = async (
     text: string,
